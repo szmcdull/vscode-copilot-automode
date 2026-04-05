@@ -12,7 +12,7 @@ Auto Mode 是一个面向 VSCode 的实验性 AI 自动审核层。
 
 - `plugin-vscode-hooks/` 这是Claude Code格式的插件，vscode现已支持Claude Code插件生态
   - 给 VSCode 宿主发现的 hook plugin
-  - 通过 `chat.pluginLocations` 注册
+  - 通过 `chat.pluginLocations` 注册（执行 `npm run install:vscode` 后通常为 `~/.auto-mode/vscode-plugin`；仓库里的目录是源码/开发态，见 `plugin-vscode-hooks/README.md`）
   - 声明 `UserPromptSubmit`、`PreToolUse`、`PostToolUse`
   - 通过 shell wrapper 把 hook payload 转发给 Node
 - `adapter-vscode/`
@@ -23,10 +23,10 @@ Auto Mode 是一个面向 VSCode 的实验性 AI 自动审核层。
 
 主线路径如下：
 
-1. VSCode 发现 `plugin-vscode-hooks/`
+1. VSCode 发现 hook plugin（安装后位于 `~/.auto-mode/vscode-plugin`；仓库中的 `plugin-vscode-hooks/` 为开发拷贝）
 2. 宿主触发某个 hook，例如 `PreToolUse`
 3. plugin 执行 `./scripts/*.sh`
-4. shell wrapper 调用 `adapter-vscode/dist/hooks/cli.js`
+4. shell wrapper 调用 hook CLI（`npm run install:vscode` 之后为 `~/.auto-mode/hook-cli/dist/hooks/cli.js`；在仓库内开发时可为 `adapter-vscode/dist/hooks/cli.js`）
 5. hook CLI 转发到 extension-host bridge
 6. TypeScript 审核引擎直接调用你配置的模型
 7. 扩展返回 `allow`、`ask` 或 `deny`
@@ -57,46 +57,39 @@ Auto Mode 是一个面向 VSCode 的实验性 AI 自动审核层。
 
 ## 在 VSCode 中安装
 
-### 1. 构建并打包扩展
+### 1. 安装 `adapter-vscode` 依赖
 
 ```bash
 cd adapter-vscode
 npm install
-npm run build
-npm run package
+cd ..
 ```
 
-执行后会在 `adapter-vscode/` 下生成 `.vsix` 包。
+先在 `adapter-vscode/` 安装扩展依赖，再回到 **仓库根目录** 运行一键安装脚本。
 
-### 2. 安装扩展
-
-如果你在仓库根目录下用命令行安装 VSCode 扩展：
+### 2. 构建、打包、安装扩展并部署 hook 运行时
 
 ```bash
-code --install-extension ./adapter-vscode/auto-mode-*.vsix
+npm run install:vscode
 ```
 
-也可以在 VSCode 扩展面板中手工安装生成的 `.vsix`。
+仍在 **仓库根目录** 执行，会运行 `scripts/install-vscode.sh`，它会：
 
-### 3. 在 VSCode 用户设置中注册 hook plugin
+- 构建 `adapter-vscode`
+- 将 VSIX 输出到 `.artifacts/auto-mode.vsix`
+- 将该 VSIX 安装到 VS Code（**无需**再手工执行 `code --install-extension`）
+- 在 `~/.auto-mode/vscode-plugin` 生成 hook plugin 运行时副本
+- 在 `~/.auto-mode/hook-cli` 部署 hook CLI（入口 `~/.auto-mode/hook-cli/dist/hooks/cli.js`）
+- **安全合并** VS Code **用户**级 `settings.json`，将 `chat.pluginLocations` 指向 `~/.auto-mode/vscode-plugin`
+- 仅在 `chat.plugins.enabled` **缺失**时补上 `true`
 
-把下面内容加到 **User Settings**：
+如果你曾显式关闭 host plugins，例如设置了 `chat.plugins.enabled: false`，安装器会保留这个选择。此时需要你自己重新开启 host plugins，hook runtime 才会被宿主加载。
 
-```json
-{
-  "chat.plugins.enabled": true,
-  "chat.pluginLocations": {
-    "/absolute/path/to/auto-mode/plugin-vscode-hooks": true
-  }
-}
-```
+此安装路径下 **无需** 再手工编辑 `chat.pluginLocations`。
 
-注意：
+迁移提醒：如果你以前按旧文档手工把 repo-local 的 `plugin-vscode-hooks` 目录写进了 `chat.pluginLocations`，安装器会保留旧条目并追加 `~/.auto-mode/vscode-plugin`。迁移到新的安装路径后，建议移除旧的 repo-local 条目，避免同时看到两份 plugin 来源而产生困惑。
 
-- 这里要写你本机上 `plugin-vscode-hooks` 的绝对路径
-- 需要写到 **用户设置**，写工作区设置不会生效
-
-### 4. 配置 Auto Mode 扩展设置
+### 3. 配置 Auto Mode 扩展设置
 
 最少需要配置 settings.json：
 
@@ -124,7 +117,7 @@ code --install-extension ./adapter-vscode/auto-mode-*.vsix
 - `autoMode.openaiBaseUrl`
 - `autoMode.modelTimeoutMs`
 
-### 5. 重启或重新加载 VSCode
+### 4. 重启或重新加载 VSCode
 
 安装扩展并修改设置后，重新加载窗口，确保扩展和 plugin 都已经生效。
 
@@ -140,7 +133,7 @@ code --install-extension ./adapter-vscode/auto-mode-*.vsix
 更详细的验证方法见：
 
 - `plugin-vscode-hooks/README.md`
-- `adapter-vscode/README.md`
+- `AGENTS_DOCS/`（实现细节与开发说明）
 
 ## 开发
 

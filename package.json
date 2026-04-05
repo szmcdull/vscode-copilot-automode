@@ -1,0 +1,7 @@
+{
+  "name": "vscode-copilot-automode",
+  "private": true,
+  "scripts": {
+    "install:vscode": "bash ./scripts/install-vscode.sh"
+  }
+}

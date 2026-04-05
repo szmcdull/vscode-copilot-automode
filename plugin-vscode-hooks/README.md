@@ -2,6 +2,10 @@
 
 Hook plugin for VSCode/Cursor that wires host hook events (`UserPromptSubmit`, `PreToolUse`, `PostToolUse`) to the Node hook runner in `adapter-vscode`.
 
+## Repository copy vs installed runtime
+
+The `plugin-vscode-hooks/` directory in this repository is the **source / development** tree. After you install dependencies in **`adapter-vscode/`** and then run **`npm run install:vscode`** from the **repository root**, the installer copies the plugin material that VS Code actually loads into **`~/.auto-mode/vscode-plugin`**. Day-to-day, assume the host is using that path unless you are explicitly developing against the in-repo copy.
+
 This package is the **real host path** for intercepting **`run_in_terminal`** in VSCode. Installing only the extension and using the palette command **`Auto Mode: Run Reviewed Shell Command`** exercises a **different** entry (adapter-centric); the **hook-driven flow** is what ties prompt storage, terminal tool use, and post-execution hooks together.
 
 ## Contract (hooks vs extension)
@@ -15,9 +19,13 @@ This package is the **real host path** for intercepting **`run_in_terminal`** in
 | Host-visible permission outcome | **`allow` / `deny` / `ask`** only. **`ask`** is intended to be resolved with **extension-owned UI** after bridge handling, not as the long-term “host ask” design. |
 | `allow_with_constraints` | **Internal** to the review engine only; it must **contract** to `allow`, `deny`, or `ask` before any host-facing result. |
 
-## VSCode User Settings (local plugin)
+## VSCode User Settings (installed vs local development)
 
-For local development, discovery typically requires **User** settings (not only workspace settings), for example:
+**Recommended install path:** first run `cd adapter-vscode && npm install && cd ..`, then run `npm run install:vscode` from the repository root. The installer **safely merges** your VS Code **User** `settings.json` so `chat.pluginLocations` includes `~/.auto-mode/vscode-plugin` (the runtime copy created by the install). You do not need to edit `chat.pluginLocations` by hand for that flow.
+
+If you previously followed older docs and manually pointed `chat.pluginLocations` at the repo-local `plugin-vscode-hooks` directory, the installer preserves that old entry and appends `~/.auto-mode/vscode-plugin`. After you migrate to the installed runtime, remove the old repo-local entry so you do not keep two plugin sources side by side.
+
+**Local development against the in-repo plugin:** discovery still typically requires **User** settings (not only workspace settings), pointing at this directory, for example:
 
 ```json
 {
@@ -28,7 +36,7 @@ For local development, discovery typically requires **User** settings (not only 
 }
 ```
 
-Use the absolute path to **this** directory on your machine. Without `chat.pluginLocations` pointing at this directory, VSCode will not load this plugin.
+Use the absolute path to **this** directory on your machine. Without `chat.pluginLocations` pointing at this directory, VSCode will not load this plugin when you are developing from the repository.
 
 **Extension settings for the bridge + model path** (required for the pure-TS hook mainline): set at least `autoMode.apiKey`, then choose `autoMode.modelProvider` (`anthropic` or `openai`) and a matching `autoMode.modelName`; optionally set `autoMode.anthropicBaseUrl` or `autoMode.openaiBaseUrl` if you use a compatible gateway. Hook subprocesses do not automatically inherit all `autoMode.*` values; the **bridge** runs inside the extension host and uses those settings.
 
@@ -43,9 +51,13 @@ Current status: this setup is aimed at Unix-like development environments. It is
 
 ### Hook CLI behavior
 
-Hooks invoke `adapter-vscode/dist/hooks/cli.js` as a **child process**. The CLI expects the extension to have published a **workspace bridge manifest**. When the manifest is missing, it now fails explicitly instead of attempting any env-based HTTP review fallback.
+Installed runtime: after `npm run install:vscode`, hooks invoke **`~/.auto-mode/hook-cli/dist/hooks/cli.js`** as a **child process**.
 
-## Hook runner (Node)
+Development-only / repo-local path: when you are developing directly from this repository without that install step, the comparable CLI path is `adapter-vscode/dist/hooks/cli.js` in the repo-local development tree.
+
+In both cases, the CLI expects the extension to have published a **workspace bridge manifest**. When the manifest is missing, it now fails explicitly instead of attempting any env-based HTTP review fallback.
+
+## Hook runner (Node, development-only / repo-local)
 
 Build the adapter TypeScript so the hook CLI exists:
 
@@ -55,13 +67,15 @@ npm install
 npm run build
 ```
 
-Emitted entrypoint: `adapter-vscode/dist/hooks/cli.js`
+Emitted entrypoint (development-only / repo-local): `adapter-vscode/dist/hooks/cli.js`
 
 The first positional argument is the hook event name; the JSON payload is read from **stdin**. The process writes one JSON line to stdout (the hook response).
 
-## Shell wrapper
+## Shell wrapper (development-only / repo-local)
 
-`scripts/run-hook.sh` uses `exec node` so **stdin is passed through** to the Node process unchanged. The hook manifest uses repo-relative script entries (`./scripts/*.sh`), and each wrapper script resolves the CLI path relative to this plugin directory: sibling `../adapter-vscode/dist/hooks/cli.js`.
+This section describes the **repository-local development layout**, not the installed runtime under `~/.auto-mode/`.
+
+In the repo-local layout, `scripts/run-hook.sh` uses `exec node` so **stdin is passed through** to the Node process unchanged. The hook manifest uses repo-relative script entries (`./scripts/*.sh`) in this development-only tree, and each wrapper script resolves the CLI path relative to this plugin directory: sibling `../adapter-vscode/dist/hooks/cli.js` in the same repo-local development layout.
 
 If that built file is missing, the script exits early with a clear error telling you to run `npm run build` in `adapter-vscode/`.
 

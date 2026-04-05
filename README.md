@@ -12,7 +12,7 @@ This repository includes two runtime components that work together:
 
 - `plugin-vscode-hooks/`: a Claude Code format plugin. VSCode now supports the Claude Code plugin ecosystem.
   - A hook plugin discovered by the VSCode host
-  - Registered via `chat.pluginLocations`
+  - Registered via `chat.pluginLocations` (after `npm run install:vscode`, typically `~/.auto-mode/vscode-plugin`; the directory in this repository is the source tree—see `plugin-vscode-hooks/README.md`)
   - Declares `UserPromptSubmit`, `PreToolUse`, and `PostToolUse`
   - Forwards hook payloads to Node through shell wrappers
 - `adapter-vscode/`
@@ -23,10 +23,10 @@ This repository includes two runtime components that work together:
 
 The main path is:
 
-1. VSCode discovers `plugin-vscode-hooks/`.
+1. VSCode discovers the hook plugin (after install, under `~/.auto-mode/vscode-plugin`; the `plugin-vscode-hooks/` folder in this repo is the development copy).
 2. The host triggers a hook, for example `PreToolUse`.
 3. The plugin executes `./scripts/*.sh`.
-4. The shell wrapper calls `adapter-vscode/dist/hooks/cli.js`.
+4. The shell wrapper calls the hook CLI (`~/.auto-mode/hook-cli/dist/hooks/cli.js` after `npm run install:vscode`; when developing from the repository, `adapter-vscode/dist/hooks/cli.js`).
 5. The hook CLI forwards the request to the extension-host bridge.
 6. The TypeScript review engine directly calls your configured model.
 7. The extension returns `allow`, `ask`, or `deny`.
@@ -57,46 +57,39 @@ Current limitations:
 
 ## Install in VSCode
 
-### 1. Build and Package the Extension
+### 1. Install `adapter-vscode` dependencies
 
 ```bash
 cd adapter-vscode
 npm install
-npm run build
-npm run package
+cd ..
 ```
 
-After running these commands, a `.vsix` package is generated under `adapter-vscode/`.
+Install the extension dependencies from `adapter-vscode/`, then return to the **repository root** for the one-command installer.
 
-### 2. Install the Extension
-
-If you install from command line at the repository root:
+### 2. Build, package, install the extension, and deploy the hook runtime
 
 ```bash
-code --install-extension ./adapter-vscode/auto-mode-*.vsix
+npm run install:vscode
 ```
 
-You can also install the generated `.vsix` manually from the VSCode Extensions panel.
+Still at the **repository root**, this runs `scripts/install-vscode.sh`, which:
 
-### 3. Register the Hook Plugin in VSCode User Settings
+- Builds `adapter-vscode`
+- Packages the VSIX to `.artifacts/auto-mode.vsix`
+- Installs that VSIX into VS Code (you do **not** need to run `code --install-extension` manually)
+- Materializes the hook plugin under `~/.auto-mode/vscode-plugin`
+- Deploys the hook CLI under `~/.auto-mode/hook-cli` (entrypoint `~/.auto-mode/hook-cli/dist/hooks/cli.js`)
+- Safely merges your VS Code **User** `settings.json` so `chat.pluginLocations` points at `~/.auto-mode/vscode-plugin`
+- Fills in `chat.plugins.enabled: true` only when that setting is currently missing
 
-Add the following to **User Settings**:
+If you have explicitly disabled host plugins with `chat.plugins.enabled: false`, the installer preserves that choice. In that case, turn host plugins back on yourself before expecting the hook runtime to load.
 
-```json
-{
-  "chat.plugins.enabled": true,
-  "chat.pluginLocations": {
-    "/absolute/path/to/auto-mode/plugin-vscode-hooks": true
-  }
-}
-```
+You do **not** need to hand-edit `chat.pluginLocations` for this install path.
 
-Notes:
+Migration note: if you previously followed older docs and manually pointed `chat.pluginLocations` at the repo-local `plugin-vscode-hooks` directory, the installer preserves that old entry and appends `~/.auto-mode/vscode-plugin`. After you migrate to the installed runtime, remove the old repo-local entry to avoid confusion from having two plugin sources listed at once.
 
-- Use the absolute path of your local `plugin-vscode-hooks` directory
-- This must be placed in **user settings**; workspace settings will not take effect
-
-### 4. Configure Auto Mode Extension Settings
+### 3. Configure Auto Mode Extension Settings
 
 The minimum required `settings.json`:
 
@@ -124,7 +117,7 @@ Optional settings include:
 - `autoMode.openaiBaseUrl`
 - `autoMode.modelTimeoutMs`
 
-### 5. Restart or Reload VSCode
+### 4. Restart or Reload VSCode
 
 After installing the extension and updating settings, reload the window to ensure both the extension and plugin are active.
 
@@ -140,7 +133,7 @@ After installation, check the following first:
 For more detailed validation steps, see:
 
 - `plugin-vscode-hooks/README.md`
-- `adapter-vscode/README.md`
+- `AGENTS_DOCS/` for implementation notes and development details
 
 ## Development
 

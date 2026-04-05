@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "label_profiles": {
+    "touches_sensitive_file": { "risk_level": "medium", "sensitive": false },
+    "outside_workspace": { "risk_level": "high", "sensitive": true },
+    "workspace_escape": { "risk_level": "high", "sensitive": true },
+    "destructive_delete": { "risk_level": "high", "sensitive": true },
+    "git_history_mutation": { "risk_level": "high", "sensitive": true },
+    "untrusted_network": { "risk_level": "medium", "sensitive": false },
+    "unknown_mcp_tool": { "risk_level": "medium", "sensitive": false },
+    "credential_surface": { "risk_level": "high", "sensitive": true },
+    "credential_access": { "risk_level": "critical", "sensitive": true }
+  },
+  "aggregation": {
+    "level_order": ["low", "medium", "high", "critical"],
+    "sensitive_floor": "high",
+    "multi_sensitive_boost": {
+      "min_count": 2,
+      "to_level": "critical"
+    }
+  },
+  "hard_boundaries": {
+    "deny_any_labels": [
+      "workspace_escape",
+      "destructive_delete",
+      "credential_access"
+    ],
+    "allow": {
+      "categories": ["file_read"],
+      "require_empty_labels": true,
+      "require_effects_inert": true
+    }
+  }
+}

@@ -1,0 +1,171 @@
+# auto-mode
+
+Auto Mode 是一个面向 VSCode 的实验性 AI 自动审核层。
+
+它会拦截 AI agent 执行前后的 hook 事件，对即将执行的命令进行模型审核，然后返回 `allow` / `ask` / `deny`
+
+当前主要是自动审核 `run_in_terminal` 工具，提高工作流自动化程度。
+
+## 这个仓库包含什么
+
+这个仓库里有两个协同工作的运行时部件：
+
+- `plugin-vscode-hooks/` 这是Claude Code格式的插件，vscode现已支持Claude Code插件生态
+  - 给 VSCode 宿主发现的 hook plugin
+  - 通过 `chat.pluginLocations` 注册
+  - 声明 `UserPromptSubmit`、`PreToolUse`、`PostToolUse`
+  - 通过 shell wrapper 把 hook payload 转发给 Node
+- `adapter-vscode/`
+  - 运行在 extension host 内的 VSCode 扩展
+  - 负责本地 bridge、审核引擎、UI、配置、打包和模型客户端
+
+## 工作原理
+
+主线路径如下：
+
+1. VSCode 发现 `plugin-vscode-hooks/`
+2. 宿主触发某个 hook，例如 `PreToolUse`
+3. plugin 执行 `./scripts/*.sh`
+4. shell wrapper 调用 `adapter-vscode/dist/hooks/cli.js`
+5. hook CLI 转发到 extension-host bridge
+6. TypeScript 审核引擎直接调用你配置的模型
+7. 扩展返回 `allow`、`ask` 或 `deny`
+
+## 当前能力范围
+
+目前实现：
+
+- 对 `run_in_terminal` 的真实宿主拦截
+- `ask` 时使用扩展自己的确认 UI
+- 在 extension host 内直连模型
+
+目前的限制：
+
+- shell 以外的类别仍然不完整，或者还处于实验阶段
+- 端到端行为仍然建议在真实编辑器里手工验证
+- hook 启动器当前主要面向类 Unix 环境
+
+## 依赖要求
+
+- 支持 host plugin 的 VSCode 或 Cursor
+- Node.js
+- `bash`
+- npm
+- 一个模型 API Key，支持以下其一：
+  - Anthropic 兼容接入
+  - OpenAI 兼容接入
+
+## 在 VSCode 中安装
+
+### 1. 构建并打包扩展
+
+```bash
+cd adapter-vscode
+npm install
+npm run build
+npm run package
+```
+
+执行后会在 `adapter-vscode/` 下生成 `.vsix` 包。
+
+### 2. 安装扩展
+
+如果你在仓库根目录下用命令行安装 VSCode 扩展：
+
+```bash
+code --install-extension ./adapter-vscode/auto-mode-*.vsix
+```
+
+也可以在 VSCode 扩展面板中手工安装生成的 `.vsix`。
+
+### 3. 在 VSCode 用户设置中注册 hook plugin
+
+把下面内容加到 **User Settings**：
+
+```json
+{
+  "chat.plugins.enabled": true,
+  "chat.pluginLocations": {
+    "/absolute/path/to/auto-mode/plugin-vscode-hooks": true
+  }
+}
+```
+
+注意：
+
+- 这里要写你本机上 `plugin-vscode-hooks` 的绝对路径
+- 需要写到 **用户设置**，写工作区设置不会生效
+
+### 4. 配置 Auto Mode 扩展设置
+
+最少需要配置 settings.json：
+
+```json
+{
+  "autoMode.modelProvider": "anthropic",
+  "autoMode.modelName": "claude-3-7-sonnet-latest",
+  "autoMode.apiKey": "your-api-key"
+}
+```
+
+如果你使用 OpenAI 兼容网关，可以这样配：
+
+```json
+{
+  "autoMode.modelProvider": "openai",
+  "autoMode.modelName": "gpt-4.1",
+  "autoMode.apiKey": "your-api-key"
+}
+```
+
+可选配置包括：
+
+- `autoMode.anthropicBaseUrl`
+- `autoMode.openaiBaseUrl`
+- `autoMode.modelTimeoutMs`
+
+### 5. 重启或重新加载 VSCode
+
+安装扩展并修改设置后，重新加载窗口，确保扩展和 plugin 都已经生效。
+
+## 快速验证
+
+完成安装后，建议先检查：
+
+1. 扩展是否在启动时成功激活
+2. 真实 AI 终端动作是否会触发 `PreToolUse`
+3. 安全命令是否能被审核，而不是异常回退到宿主默认审批
+4. `ask` 是否使用扩展自己的确认 UI
+
+更详细的验证方法见：
+
+- `plugin-vscode-hooks/README.md`
+- `adapter-vscode/README.md`
+
+## 开发
+
+TypeScript 部分：
+
+```bash
+cd adapter-vscode
+npm test
+npm run build
+```
+
+## 仓库结构
+
+- `adapter-vscode/` - VSCode 扩展、hook bridge、审核引擎、UI
+- `plugin-vscode-hooks/` - 宿主 hook plugin 清单和 shell wrapper
+- `docs/protocol/` - 协议和集成文档
+- `fixtures/` - 示例 payload、策略和决策 fixture
+- `AGENTS_DOCS/` - 实现教训和补充说明
+
+## 限制
+
+- 当前最成熟的是 `run_in_terminal` 这条 hook 主线，其他类别还没有同等成熟度
+- 自动化测试不能替代真实编辑器里的 live 验证
+- 宿主 hook 生态仍在变化，不同行为可能和宿主版本有关
+
+## License
+
+本仓库采用 GNU Affero General Public License v3.0 许可。详见 `LICENSE`。

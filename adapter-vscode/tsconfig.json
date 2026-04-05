@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "skipLibCheck": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "declaration": false,
+    "types": ["node"]
+  },
+  // Hook runtime (src/hooks/**/*.ts) compiles to dist/hooks/ alongside the extension; unit tests excluded below.
+  "include": ["src/**/*.ts", "src/hooks/**/*.ts"],
+  "exclude": ["src/**/*.test.ts", "src/e2e/**/*.ts"]
+}

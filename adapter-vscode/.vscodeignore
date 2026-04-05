@@ -1,0 +1,12 @@
+src/**
+.vscode/**
+coverage/**
+.vscode-test/**
+node_modules/**
+.artifacts/**
+*.vsix
+*.log
+vitest.config.*
+tsconfig.json
+dist/**/*.test.js
+dist/e2e/**

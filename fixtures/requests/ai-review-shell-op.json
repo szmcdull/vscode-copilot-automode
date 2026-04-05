@@ -1,0 +1,22 @@
+{
+  "id": "req-ai-shell-1",
+  "source": "cli",
+  "session": "sess-1",
+  "workspace": "/home/user/project",
+  "tool": "run_terminal_cmd",
+  "category": "shell",
+  "intent": "Run unit tests for the adapter package",
+  "arguments": {"command": "npm test"},
+  "normalized_effects": {
+    "may_spawn_process": true,
+    "may_use_network": false,
+    "escapes_workspace": false
+  },
+  "requested_permissions": ["shell_execute"],
+  "model_context": {
+    "plan_summary": "Run npm test with workspace cwd; no network.",
+    "rationale": "User asked to verify tests locally."
+  },
+  "risk_signals": {},
+  "timestamp": "2024-11-14T12:00:00Z"
+}

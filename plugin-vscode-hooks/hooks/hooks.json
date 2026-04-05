@@ -1,0 +1,36 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./scripts/user-prompt-submit.sh"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|runTerminalCommand",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./scripts/pre-tool-use.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|runTerminalCommand",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./scripts/post-tool-use.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

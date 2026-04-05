@@ -1,0 +1,9 @@
+bin/
+dist/
+node_modules/
+.vscode-test/
+.artifacts/
+coverage/
+*.log
+AGENTS.md
+AGENTS_DOCS/

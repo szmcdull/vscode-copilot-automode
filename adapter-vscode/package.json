@@ -1,0 +1,84 @@
+{
+  "name": "auto-mode",
+  "displayName": "Auto Mode",
+  "repository": {
+    "url": "https://github.com/szmcdull/vscode-copilot-automode"
+  },
+  "private": true,
+  "version": "0.0.6",
+  "type": "module",
+  "engines": {
+    "vscode": ">=1.105.0"
+  },
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:autoMode.runReviewedShellCommand"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "autoMode.runReviewedShellCommand",
+        "title": "Auto Mode: Run Reviewed Shell Command"
+      }
+    ],
+    "configuration": {
+      "title": "Auto Mode",
+      "properties": {
+        "autoMode.modelProvider": {
+          "type": "string",
+          "default": "anthropic",
+          "enum": [
+            "anthropic",
+            "openai"
+          ],
+          "description": "Model provider for hook-time shell review in the extension host (direct HTTP, not VS Code Language Model API). Supported values: \"anthropic\", \"openai\"."
+        },
+        "autoMode.modelName": {
+          "type": "string",
+          "default": "claude-3-7-sonnet-latest",
+          "description": "Provider-specific model id used for PreToolUse review (run_in_terminal) when using the local bridge, for example claude-3-7-sonnet-latest or gpt-4.1."
+        },
+        "autoMode.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key for the configured provider. Required for the extension-host hook bridge and review engine; stored in user/workspace settings like other secrets."
+        },
+        "autoMode.anthropicBaseUrl": {
+          "type": "string",
+          "description": "Optional override for the Anthropic Messages API base URL. Omit to use the default public endpoint."
+        },
+        "autoMode.openaiBaseUrl": {
+          "type": "string",
+          "description": "Optional override for the OpenAI Chat Completions API base URL. Omit to use the default public endpoint."
+        },
+        "autoMode.modelTimeoutMs": {
+          "type": "number",
+          "default": 120000,
+          "description": "Timeout in milliseconds for model completion requests used by the hook bridge review path."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "clean": "node ./scripts/clean.js dist",
+    "clean:package": "node ./scripts/clean.js dist vsix",
+    "prebuild": "npm run clean",
+    "prebuild:hooks": "npm run clean",
+    "prepackage": "npm run clean:package && npm run build",
+    "test": "vitest run",
+    "build": "tsc -p .",
+    "build:hooks": "tsc -p .",
+    "watch": "tsc -w -p .",
+    "devhost:vscode": "code --extensionDevelopmentPath=.",
+    "devhost:cursor": "cursor --extensionDevelopmentPath=.",
+    "package": "vsce package --out ../.artifacts/auto-mode.vsix"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.105.0",
+    "@vscode/vsce": "^3.7.1",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

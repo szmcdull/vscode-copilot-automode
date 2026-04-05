@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "audit": {
+    "request": {
+      "id": "req-completed",
+      "source": "cursor",
+      "session": "sess",
+      "workspace": "/ws",
+      "tool": "run_terminal_cmd",
+      "category": "shell",
+      "normalized_effects": {
+        "may_use_network": true
+      },
+      "requested_permissions": [
+        "network_egress"
+      ],
+      "timestamp": "2023-11-14T22:13:20Z"
+    },
+    "risk_classification": {
+      "labels": [
+        "untrusted_network"
+      ],
+      "aggregated_risk_level": "medium"
+    },
+    "final_decision": {
+      "decision": "allow_with_constraints",
+      "reason": "limited",
+      "risk_level": "medium",
+      "constraints": {
+        "workspace_only": true
+      },
+      "trace": {}
+    },
+    "ai_review_status": "completed",
+    "ai_review_input_summary": "prompt summary",
+    "ai_review_output": {
+      "ok": true
+    },
+    "ai_review_error": null,
+    "user_overrode": false
+  },
+  "planned_decision": {
+    "decision": "allow_with_constraints",
+    "reason": "limited",
+    "risk_level": "medium",
+    "constraints": {
+      "workspace_only": true
+    },
+    "trace": {}
+  },
+  "effective_decision": {
+    "decision": "allow_with_constraints",
+    "reason": "limited",
+    "risk_level": "medium",
+    "constraints": {
+      "workspace_only": true
+    },
+    "trace": {}
+  }
+}

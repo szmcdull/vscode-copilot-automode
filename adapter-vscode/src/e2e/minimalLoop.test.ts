@@ -18,23 +18,39 @@ describe('adapter minimal closed loop', () => {
     }
   });
 
-  it('follows hook CLI -> bridge manifest -> extension bridge -> self-ask -> final host allow', async () => {
+  it('follows hook CLI -> bridge manifest -> extension bridge -> two-phase allow', async () => {
     process.env.AUTO_MODE_HOOK_RUNTIME_ROOT = runtimeRoot;
 
-    const reviewShellCommand = vi.fn().mockResolvedValue({
-      finalAction: 'ask',
+    const reviewPhase1ShellCommand = vi.fn().mockResolvedValue({
+      allow: true,
       reason: 'Needs local approval before running npm test.',
-      rawModelDecision: 'ask',
-      degradedFromConstraints: false,
+      complete: true,
+      accesses: [{ kind: 'r', path: 'package.json', glob: false }],
     });
+    const reviewPhase2ResolvedAccesses = vi.fn();
+    const reviewShellCommand = vi.fn();
     const promptPreToolUseDecision = vi.fn().mockResolvedValue('allow');
     const showAskResolved = vi.fn().mockResolvedValue(undefined);
     const submitUserDecision = vi.fn();
+    const resolvePhase1Accesses = vi.fn().mockResolvedValue({
+      ok: true,
+      needsPhase2: false,
+      accesses: [
+        {
+          kind: 'r',
+          path: 'package.json',
+          expanded: '/workspace/package.json',
+          real: '/workspace/package.json',
+          symlink: 'n',
+          real_from: 'target',
+        },
+      ],
+    });
 
     const { bridge, token } = createExtensionHookBridge({
       hookRuntimeRoot: runtimeRoot,
       workspaceRoot: '/workspace',
-      reviewEngine: { reviewShellCommand } as any,
+      reviewEngine: { reviewShellCommand, reviewPhase1ShellCommand, reviewPhase2ResolvedAccesses } as any,
       reviewClient: {
         observeExecution: vi.fn(),
         submitUserDecision,
@@ -43,6 +59,7 @@ describe('adapter minimal closed loop', () => {
         promptPreToolUseDecision,
         showAskResolved,
       } as any,
+      resolvePhase1Accesses,
     });
 
     await createBridgeManifestStore({ rootDir: runtimeRoot }).put({
@@ -101,7 +118,7 @@ describe('adapter minimal closed loop', () => {
       };
     };
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(reviewShellCommand).toHaveBeenCalledWith(
+    expect(reviewPhase1ShellCommand).toHaveBeenCalledWith(
       expect.objectContaining({
         userPrompt: 'run npm test',
         command: 'npm test',
@@ -109,12 +126,8 @@ describe('adapter minimal closed loop', () => {
         cwd: '/workspace',
       }),
     );
-    expect(promptPreToolUseDecision).toHaveBeenCalledWith(
-      expect.objectContaining({
-        title: 'Confirm terminal command',
-      }),
-    );
-    expect(showAskResolved).toHaveBeenCalledWith('approve');
+    expect(promptPreToolUseDecision).not.toHaveBeenCalled();
+    expect(showAskResolved).not.toHaveBeenCalled();
     expect(submitUserDecision).not.toHaveBeenCalled();
     expect(finalResult).toEqual({
       continue: true,
@@ -126,15 +139,16 @@ describe('adapter minimal closed loop', () => {
     });
   });
 
-  it('does not block the hook response on the ask-resolved notification after local approval', async () => {
+  it('does not block the hook response on ask UI because the bridge no longer prompts for run_in_terminal', async () => {
     process.env.AUTO_MODE_HOOK_RUNTIME_ROOT = runtimeRoot;
 
-    const reviewShellCommand = vi.fn().mockResolvedValue({
-      finalAction: 'ask',
+    const reviewPhase1ShellCommand = vi.fn().mockResolvedValue({
+      allow: true,
       reason: 'Recursive deletion requires explicit local approval.',
-      rawModelDecision: 'ask',
-      degradedFromConstraints: false,
+      complete: true,
+      accesses: [{ kind: 'r', path: 'package.json', glob: false }],
     });
+    const reviewShellCommand = vi.fn();
     const promptPreToolUseDecision = vi.fn().mockResolvedValue('allow');
     const showAskResolved = vi.fn(
       () =>
@@ -142,11 +156,25 @@ describe('adapter minimal closed loop', () => {
           // Simulate a notification promise that never settles before the hook timeout window.
         }),
     );
+    const resolvePhase1Accesses = vi.fn().mockResolvedValue({
+      ok: true,
+      needsPhase2: false,
+      accesses: [
+        {
+          kind: 'r',
+          path: 'package.json',
+          expanded: '/workspace/package.json',
+          real: '/workspace/package.json',
+          symlink: 'n',
+          real_from: 'target',
+        },
+      ],
+    });
 
     const { bridge, token } = createExtensionHookBridge({
       hookRuntimeRoot: runtimeRoot,
       workspaceRoot: '/workspace',
-      reviewEngine: { reviewShellCommand } as any,
+      reviewEngine: { reviewShellCommand, reviewPhase1ShellCommand, reviewPhase2ResolvedAccesses: vi.fn() } as any,
       reviewClient: {
         observeExecution: vi.fn(),
         submitUserDecision: vi.fn(),
@@ -155,6 +183,7 @@ describe('adapter minimal closed loop', () => {
         promptPreToolUseDecision,
         showAskResolved,
       } as any,
+      resolvePhase1Accesses,
     });
 
     await createBridgeManifestStore({ rootDir: runtimeRoot }).put({
@@ -199,8 +228,8 @@ describe('adapter minimal closed loop', () => {
       hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string };
     };
 
-    expect(promptPreToolUseDecision).toHaveBeenCalled();
-    expect(showAskResolved).toHaveBeenCalledWith('approve');
+    expect(promptPreToolUseDecision).not.toHaveBeenCalled();
+    expect(showAskResolved).not.toHaveBeenCalled();
     expect(finalResult).toEqual({
       continue: true,
       hookSpecificOutput: {
@@ -211,22 +240,37 @@ describe('adapter minimal closed loop', () => {
     });
   });
 
-  it('returns explicit host allow without prompting when the review engine allows directly', async () => {
+  it('returns explicit host allow without prompting when phase 1 and resolver allow without phase 2', async () => {
     process.env.AUTO_MODE_HOOK_RUNTIME_ROOT = runtimeRoot;
 
-    const reviewShellCommand = vi.fn().mockResolvedValue({
-      finalAction: 'allow',
+    const reviewPhase1ShellCommand = vi.fn().mockResolvedValue({
+      allow: true,
       reason: 'The command only prints a string and does not modify the workspace.',
-      rawModelDecision: 'allow',
-      degradedFromConstraints: false,
+      complete: true,
+      accesses: [{ kind: 'r', path: 'package.json', glob: false }],
     });
+    const reviewShellCommand = vi.fn();
     const promptPreToolUseDecision = vi.fn();
     const showAskResolved = vi.fn();
+    const resolvePhase1Accesses = vi.fn().mockResolvedValue({
+      ok: true,
+      needsPhase2: false,
+      accesses: [
+        {
+          kind: 'r',
+          path: 'package.json',
+          expanded: '/workspace/package.json',
+          real: '/workspace/package.json',
+          symlink: 'n',
+          real_from: 'target',
+        },
+      ],
+    });
 
     const { bridge, token } = createExtensionHookBridge({
       hookRuntimeRoot: runtimeRoot,
       workspaceRoot: '/workspace',
-      reviewEngine: { reviewShellCommand } as any,
+      reviewEngine: { reviewShellCommand, reviewPhase1ShellCommand, reviewPhase2ResolvedAccesses: vi.fn() } as any,
       reviewClient: {
         observeExecution: vi.fn(),
         submitUserDecision: vi.fn(),
@@ -235,6 +279,7 @@ describe('adapter minimal closed loop', () => {
         promptPreToolUseDecision,
         showAskResolved,
       } as any,
+      resolvePhase1Accesses,
     });
 
     await createBridgeManifestStore({ rootDir: runtimeRoot }).put({
@@ -279,7 +324,7 @@ describe('adapter minimal closed loop', () => {
       hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string };
     };
 
-    expect(reviewShellCommand).toHaveBeenCalled();
+    expect(reviewPhase1ShellCommand).toHaveBeenCalled();
     expect(promptPreToolUseDecision).not.toHaveBeenCalled();
     expect(showAskResolved).not.toHaveBeenCalled();
     expect(finalResult).toEqual({
@@ -293,7 +338,7 @@ describe('adapter minimal closed loop', () => {
     });
   });
 
-  it('follows the same bridge/self-ask path and returns final host deny', async () => {
+  it('returns final host deny from phase 1 without self-ask', async () => {
     process.env.AUTO_MODE_HOOK_RUNTIME_ROOT = runtimeRoot;
 
     const promptPreToolUseDecision = vi.fn().mockResolvedValue('deny');
@@ -303,12 +348,14 @@ describe('adapter minimal closed loop', () => {
       hookRuntimeRoot: runtimeRoot,
       workspaceRoot: '/workspace',
       reviewEngine: {
-        reviewShellCommand: vi.fn().mockResolvedValue({
-          finalAction: 'ask',
+        reviewShellCommand: vi.fn(),
+        reviewPhase1ShellCommand: vi.fn().mockResolvedValue({
+          allow: false,
           reason: 'Deletes files outside the workspace.',
-          rawModelDecision: 'ask',
-          degradedFromConstraints: false,
+          complete: true,
+          accesses: [],
         }),
+        reviewPhase2ResolvedAccesses: vi.fn(),
       } as any,
       reviewClient: {
         observeExecution: vi.fn(),
@@ -361,8 +408,8 @@ describe('adapter minimal closed loop', () => {
       continue: boolean;
       hookSpecificOutput?: { permissionDecision?: string };
     };
-    expect(promptPreToolUseDecision).toHaveBeenCalled();
-    expect(showAskResolved).toHaveBeenCalledWith('deny');
+    expect(promptPreToolUseDecision).not.toHaveBeenCalled();
+    expect(showAskResolved).not.toHaveBeenCalled();
     expect(finalResult).toEqual({
       continue: false,
       hookSpecificOutput: {

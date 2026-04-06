@@ -27,7 +27,16 @@ import {
 import { createUserPromptSubmitHandler } from './hooks/userPromptSubmit.js';
 import { appendDebugLog, debugLogPathFromEnv } from './debug/log.js';
 import { createModelClient } from './model/clientFactory.js';
-import { createReviewEngine } from './review/reviewEngine.js';
+import { createReviewEngine, type ShellReviewResult } from './review/reviewEngine.js';
+import type {
+  Phase1ReviewResult,
+  Phase2ResolvedAccessReviewInput,
+  Phase2ReviewResult,
+  ShellReviewInput,
+} from './review/reviewPrompt.js';
+import { resolvePhase1Accesses as defaultResolvePhase1Accesses } from './review/resolvedAccessResolver.js';
+import type { ResolvePhase1AccessesInput, ResolvePhase1AccessesResult } from './review/resolvedAccessResolver.js';
+import { createShellQuarantineStore, type ShellQuarantineStore } from './review/shellQuarantineStore.js';
 
 export interface AdapterBundleConfig {
   reviewEngine: {
@@ -138,24 +147,26 @@ export async function replaceBridgeRuntime(options: {
   }
 }
 
+export type ResolvePhase1AccessesFn = (
+  input: ResolvePhase1AccessesInput,
+) => Promise<ResolvePhase1AccessesResult>;
+
+/** Hook bridge uses phase 1 + resolver (+ phase 2 when needed); `reviewShellCommand` remains for other callers. */
+export interface HookBridgeReviewEngine {
+  reviewPhase1ShellCommand(input: ShellReviewInput): Promise<Phase1ReviewResult>;
+  reviewPhase2ResolvedAccesses(input: Phase2ResolvedAccessReviewInput): Promise<Phase2ReviewResult>;
+  reviewShellCommand(input: ShellReviewInput): Promise<ShellReviewResult>;
+}
+
 export interface CreateExtensionHookBridgeOptions {
   hookRuntimeRoot: string;
   workspaceRoot: string;
-  reviewEngine: {
-    reviewShellCommand(input: {
-      userPrompt: string;
-      command: string;
-      workspaceRoot: string;
-      homeDir: string;
-      cwd: string;
-    }): Promise<{
-      finalAction: 'allow' | 'deny' | 'ask';
-      reason: string;
-    }>;
-  };
+  reviewEngine: HookBridgeReviewEngine;
   ui: Pick<UiController, 'promptPreToolUseDecision' | 'showAskResolved'>;
   token?: string;
   homeDir?: string;
+  resolvePhase1Accesses?: ResolvePhase1AccessesFn;
+  shellQuarantine?: ShellQuarantineStore;
 }
 
 let activeBridgeDispose: (() => Promise<void>) | undefined;
@@ -241,6 +252,11 @@ async function listenBridgeHttpServer(bridge: BridgeServer): Promise<{ port: num
   });
 }
 
+/**
+ * `run_in_terminal` on the hook bridge now uses the two-phase realpath review flow.
+ * Keep the command-palette path (`createAdapterBundle`) on legacy single-phase review
+ * until that caller is migrated intentionally.
+ */
 export function createExtensionHookBridge(options: CreateExtensionHookBridgeOptions): {
   bridge: BridgeServer;
   token: string;
@@ -248,6 +264,8 @@ export function createExtensionHookBridge(options: CreateExtensionHookBridgeOpti
   const sessionStore = createSessionStore({ rootDir: options.hookRuntimeRoot });
   const linkStore = createToolUseLinkStore({ rootDir: options.hookRuntimeRoot });
   const token = options.token ?? randomUUID();
+  const shellQuarantine = options.shellQuarantine ?? createShellQuarantineStore();
+  const resolveAccesses = options.resolvePhase1Accesses ?? defaultResolvePhase1Accesses;
 
   const preToolUse = async (payload: unknown) => {
     const p = assertPreToolUsePayload(payload);
@@ -272,9 +290,23 @@ export function createExtensionHookBridge(options: CreateExtensionHookBridgeOpti
       return { continue: true };
     }
 
+    const quarantineKey = { sessionId: p.session_id, workspaceRoot: options.workspaceRoot };
+    if (shellQuarantine.isQuarantined(quarantineKey)) {
+      return {
+        continue: false,
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'deny',
+          permissionDecisionReason:
+            'Shell execution is locked for this session due to repeated denials; commands are not sent to the review model.',
+        },
+      };
+    }
+
     const promptContext = await sessionStore.get(p.session_id);
     const command = typeof p.tool_input.command === 'string' ? p.tool_input.command : '';
-    const review = await options.reviewEngine.reviewShellCommand({
+
+    const phase1 = await options.reviewEngine.reviewPhase1ShellCommand({
       userPrompt: promptContext?.prompt ?? '',
       command,
       workspaceRoot: options.workspaceRoot,
@@ -283,68 +315,100 @@ export function createExtensionHookBridge(options: CreateExtensionHookBridgeOpti
     });
     await appendDebugLog({
       component: 'extension-bridge',
-      event: 'review_complete',
+      event: 'phase1_review_complete',
       details: {
-        finalAction: review.finalAction,
-        reason: review.reason,
+        allow: phase1.allow,
+        complete: phase1.complete,
+        reason: phase1.reason,
         command,
       },
     }).catch(() => undefined);
 
-    if (review.finalAction === 'allow') {
-      return {
-        continue: true,
-        hookSpecificOutput: {
-          hookEventName: 'PreToolUse',
-          permissionDecision: 'allow',
-          permissionDecisionReason: review.reason,
-        },
-      };
-    }
-
-    if (review.finalAction === 'deny') {
+    if (!phase1.allow || !phase1.complete) {
+      shellQuarantine.recordDeny(quarantineKey, 'phase1');
       return {
         continue: false,
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
           permissionDecision: 'deny',
-          permissionDecisionReason: review.reason,
+          permissionDecisionReason: phase1.reason,
         },
       };
     }
 
-    const decision = await options.ui.promptPreToolUseDecision({
-      title: 'Confirm terminal command',
-      prompt: `${review.reason}\n\nCommand:\n${command}`,
+    const resolved = await resolveAccesses({
+      cwd: p.cwd,
+      accesses: phase1.accesses,
     });
     await appendDebugLog({
       component: 'extension-bridge',
-      event: 'ask_decision',
+      event: 'resolve_phase1_accesses_complete',
       details: {
-        decision,
+        ok: resolved.ok,
+        needsPhase2: resolved.needsPhase2,
         command,
       },
     }).catch(() => undefined);
 
-    if (decision === 'allow') {
-      void Promise.resolve(options.ui.showAskResolved('approve')).catch(() => undefined);
+    if (!resolved.ok) {
+      shellQuarantine.recordDeny(quarantineKey, 'resolve');
+      return {
+        continue: false,
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'deny',
+          permissionDecisionReason: resolved.reason ?? 'local path resolution failed',
+        },
+      };
+    }
+
+    if (!resolved.needsPhase2) {
+      shellQuarantine.clearDenyStreak(quarantineKey);
       return {
         continue: true,
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
           permissionDecision: 'allow',
-          permissionDecisionReason: review.reason,
+          permissionDecisionReason: phase1.reason,
         },
       };
     }
 
-    void Promise.resolve(options.ui.showAskResolved('deny')).catch(() => undefined);
+    const phase2 = await options.reviewEngine.reviewPhase2ResolvedAccesses({
+      cmd: command,
+      cwd: p.cwd,
+      complete: 'y',
+      accesses: resolved.accesses,
+    });
+    await appendDebugLog({
+      component: 'extension-bridge',
+      event: 'phase2_review_complete',
+      details: {
+        allow: phase2.allow,
+        reason: phase2.reason,
+        command,
+      },
+    }).catch(() => undefined);
+
+    if (!phase2.allow) {
+      shellQuarantine.recordDeny(quarantineKey, 'phase2');
+      return {
+        continue: false,
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'deny',
+          permissionDecisionReason: phase2.reason,
+        },
+      };
+    }
+
+    shellQuarantine.clearDenyStreak(quarantineKey);
     return {
-      continue: false,
+      continue: true,
       hookSpecificOutput: {
         hookEventName: 'PreToolUse',
-        permissionDecision: 'deny',
-        permissionDecisionReason: review.reason,
+        permissionDecision: 'allow',
+        permissionDecisionReason: phase2.reason,
       },
     };
   };

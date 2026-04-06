@@ -1,16 +1,18 @@
 # auto-mode
 
+[English documentation](README.md)
+
 Auto Mode 是一个面向 VSCode 的实验性 AI 自动审核层。
 
-它会拦截 AI agent 执行前后的 hook 事件，对即将执行的命令进行模型审核，然后返回 `allow` / `ask` / `deny`
+它会拦截 AI agent 执行前后的 hook 事件，在终端命令执行前用模型做审核。对 **hook 路径**上的 `run_in_terminal`，扩展采用**两阶段**审核（路径提取、本地 glob/realpath 解析、必要时第二次模型复审），并带有**重复拒绝熔断（quarantine）**，在多次拒绝后，不再调用模型分析而是直接拒绝所有后续外部命令工具请求，同时提示用户，避免循环工作流中死循环。
 
-当前主要是自动审核 `run_in_terminal` 工具，提高工作流自动化程度。
+当前成熟主线是对 hook 流程中的 `run_in_terminal` 做自动审核。
 
 ## 这个仓库包含什么
 
 这个仓库里有两个协同工作的运行时部件：
 
-- `plugin-vscode-hooks/` 这是Claude Code格式的插件，vscode现已支持Claude Code插件生态
+- `plugin-vscode-hooks/`：Claude Code 格式的插件，VSCode 现已支持 Claude Code 插件生态
   - 给 VSCode 宿主发现的 hook plugin
   - 通过 `chat.pluginLocations` 注册（执行 `npm run install:vscode` 后通常为 `~/.auto-mode/vscode-plugin`；仓库里的目录是源码/开发态，见 `plugin-vscode-hooks/README.md`）
   - 声明 `UserPromptSubmit`、`PreToolUse`、`PostToolUse`
@@ -21,22 +23,25 @@ Auto Mode 是一个面向 VSCode 的实验性 AI 自动审核层。
 
 ## 工作原理
 
-主线路径如下：
+`run_in_terminal` 的 **hook 主线**如下：
 
 1. VSCode 发现 hook plugin（安装后位于 `~/.auto-mode/vscode-plugin`；仓库中的 `plugin-vscode-hooks/` 为开发拷贝）
 2. 宿主触发某个 hook，例如 `PreToolUse`
 3. plugin 执行 `./scripts/*.sh`
 4. shell wrapper 调用 hook CLI（`npm run install:vscode` 之后为 `~/.auto-mode/hook-cli/dist/hooks/cli.js`；在仓库内开发时可为 `adapter-vscode/dist/hooks/cli.js`）
 5. hook CLI 转发到 extension-host bridge
-6. TypeScript 审核引擎直接调用你配置的模型
-7. 扩展返回 `allow`、`ask` 或 `deny`
+6. bridge 先跑 **phase 1** shell 审核（模型给出读/写/删路径候选），再跑**本地 resolver**（字面 glob 展开、symlink / `realpath` 事实）。若解析后路径需要额外审视，再跑 **phase 2**；否则仅 phase 1 即可结束。
+7. 对该 hook 路径，扩展向宿主返回 `allow` 或 `deny`（hook 流程**不**走扩展 `ask` 弹窗）。多次 `deny` 可能触发 **shell quarantine**，后续 `run_in_terminal` 会在更早阶段直接拒绝。
+
+**Auto Mode: Run Reviewed Shell Command** 命令面板路径是另一套：仍使用旧版单阶段审核，并可能返回 `ask` 与扩展确认 UI。
 
 ## 当前能力范围
 
 目前实现：
 
-- 对 `run_in_terminal` 的真实宿主拦截
-- `ask` 时使用扩展自己的确认 UI
+- 对 `run_in_terminal` 的真实宿主拦截，hook 路径为**两阶段 + realpath 感知**审核
+- **重复拒绝 shell quarantine**（内存态，按会话/工作区维度），用于阻断高风险重试循环
+- **命令面板**路径在返回 `ask` 时使用扩展自己的确认 UI
 - 在 extension host 内直连模型
 
 目前的限制：
@@ -128,7 +133,8 @@ npm run install:vscode
 1. 扩展是否在启动时成功激活
 2. 真实 AI 终端动作是否会触发 `PreToolUse`
 3. 安全命令是否能被审核，而不是异常回退到宿主默认审批
-4. `ask` 是否使用扩展自己的确认 UI
+4. **hook** 路径上的 `run_in_terminal`：结果为 `allow` / `deny`，**不**使用扩展 `ask` 弹窗；**命令面板**的「已审核 shell 命令」仍可能 `ask` 并使用扩展确认 UI
+5. 若命令被拒绝后主 agent **重试**，即使命令文本相同，只要 **`tool_use_id` 变了**，就是新一轮审核，而不是同一次 hook 被重复执行
 
 更详细的验证方法见：
 
@@ -155,7 +161,8 @@ npm run build
 
 ## 限制
 
-- 当前最成熟的是 `run_in_terminal` 这条 hook 主线，其他类别还没有同等成熟度
+- 当前最成熟的是 `run_in_terminal` **hook** 主线（两阶段审核 + quarantine）；命令面板的 shell 入口是另一套旧版路径
+- 其他类别还没有同等成熟度
 - 自动化测试不能替代真实编辑器里的 live 验证
 - 宿主 hook 生态仍在变化，不同行为可能和宿主版本有关
 

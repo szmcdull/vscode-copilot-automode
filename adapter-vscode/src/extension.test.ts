@@ -17,12 +17,30 @@ const packageJSON = JSON.parse(
   readFileSync(path.join(adapterRoot, 'package.json'), 'utf8'),
 ) as Record<string, unknown>;
 
+/** Avoid `import('vscode')` during vitest `activate()` (Node has no vscode package). */
+function loadVscodeModuleStub() {
+  return Promise.resolve({
+    workspace: {
+      getConfiguration: () => ({
+        get: (key: string, defaultValue?: unknown) => (key === 'enabled' ? true : defaultValue),
+        update: vi.fn().mockResolvedValue(undefined),
+      }),
+      onDidChangeConfiguration: vi.fn().mockReturnValue({ dispose: vi.fn() }),
+    },
+    ConfigurationTarget: { Global: 1 },
+    window: {
+      showInformationMessage: vi.fn().mockResolvedValue(undefined),
+    },
+  } as unknown as typeof import('vscode'));
+}
+
 describe('adapter extension manifest', () => {
   it('declares the minimum VS Code extension fields', () => {
     expect(packageJSON.engines).toEqual({ vscode: '>=1.105.0' });
     expect(packageJSON.main).toBe('./dist/extension.js');
     expect(packageJSON.activationEvents).toContain('onStartupFinished');
     expect(packageJSON.activationEvents).toContain('onCommand:autoMode.runReviewedShellCommand');
+    expect(packageJSON.activationEvents).toContain('onCommand:autoMode.toggleHookReview');
   });
 
   it('declares install/build/test/package scripts for extension development', () => {
@@ -51,6 +69,10 @@ describe('adapter extension manifest', () => {
         command: 'autoMode.runReviewedShellCommand',
         title: 'Auto Mode: Run Reviewed Shell Command',
       },
+      {
+        command: 'autoMode.toggleHookReview',
+        title: 'Auto Mode: Toggle Hook Review',
+      },
     ]);
   });
 
@@ -61,6 +83,7 @@ describe('adapter extension manifest', () => {
       };
     };
     expect(contributes.configuration?.properties).toMatchObject({
+      'autoMode.enabled': { default: true },
       'autoMode.modelProvider': { default: 'anthropic', enum: ['anthropic', 'openai'] },
       'autoMode.modelName': { default: 'claude-3-7-sonnet-latest' },
       'autoMode.apiKey': { default: '' },
@@ -163,6 +186,7 @@ describe('extension lifecycle', () => {
 
     const context = { subscriptions: [] as Array<{ dispose(): void }> };
     const runtime = await activate(context, {
+      loadVscodeModule: loadVscodeModuleStub,
       getConfigValue(key) {
         switch (key) {
           case 'autoMode.modelProvider':
@@ -178,6 +202,7 @@ describe('extension lifecycle', () => {
       createUi() {
         return {
           setReady: vi.fn(),
+          refreshReadyAppearance: vi.fn(),
           showServiceStartFailed: vi.fn(),
           showSafeModeState: vi.fn(),
           showAskResolved: vi.fn(),
@@ -198,15 +223,18 @@ describe('extension lifecycle', () => {
       'autoMode.runReviewedShellCommand',
       expect.any(Function),
     );
-    expect(context.subscriptions).toHaveLength(1);
+    expect(registerCommand).toHaveBeenCalledWith('autoMode.toggleHookReview', expect.any(Function));
+    expect(context.subscriptions).toHaveLength(3);
     expect(runtime.adapterBundle).toBeTruthy();
   });
 
   it('registered reviewed shell command runs through the shell entry and host prompts', async () => {
     const registerCommand = vi.fn();
     let handler: (() => Promise<unknown>) | undefined;
-    registerCommand.mockImplementation((_command, fn) => {
-      handler = fn;
+    registerCommand.mockImplementation((command, fn) => {
+      if (command === 'autoMode.runReviewedShellCommand') {
+        handler = fn;
+      }
       return { dispose: vi.fn() };
     });
 
@@ -218,6 +246,7 @@ describe('extension lifecycle', () => {
     await activate(
       { subscriptions: [] },
       {
+        loadVscodeModule: loadVscodeModuleStub,
         getConfigValue(key) {
           switch (key) {
             case 'autoMode.modelProvider':
@@ -233,6 +262,7 @@ describe('extension lifecycle', () => {
         createUi() {
           return {
             setReady: vi.fn(),
+            refreshReadyAppearance: vi.fn(),
             showServiceStartFailed: vi.fn(),
             showSafeModeState: vi.fn(),
             showAskResolved: vi.fn(),
@@ -277,6 +307,7 @@ describe('extension lifecycle', () => {
           createUi() {
             return {
               setReady: vi.fn(),
+              refreshReadyAppearance: vi.fn(),
               showServiceStartFailed,
               showSafeModeState: vi.fn(),
               showAskResolved: vi.fn(),
@@ -305,6 +336,7 @@ describe('extension lifecycle', () => {
       activate(
         { subscriptions: [] },
         {
+          loadVscodeModule: loadVscodeModuleStub,
           getConfigValue(key) {
             switch (key) {
               case 'autoMode.modelProvider':
@@ -320,6 +352,7 @@ describe('extension lifecycle', () => {
           createUi() {
             return {
               setReady: vi.fn(),
+              refreshReadyAppearance: vi.fn(),
               showServiceStartFailed,
               showSafeModeState: vi.fn(),
               showAskResolved: vi.fn(),
@@ -349,6 +382,7 @@ describe('extension lifecycle', () => {
     await activate(
       { subscriptions: [] },
       {
+        loadVscodeModule: loadVscodeModuleStub,
         getConfigValue(key) {
           switch (key) {
             case 'autoMode.modelProvider':
@@ -364,6 +398,7 @@ describe('extension lifecycle', () => {
         createUi() {
           return {
             setReady: vi.fn(),
+            refreshReadyAppearance: vi.fn(),
             showServiceStartFailed: vi.fn(),
             showSafeModeState: vi.fn(),
             showAskResolved: vi.fn(),
@@ -779,6 +814,37 @@ describe('createExtensionHookBridge two-phase PreToolUse', () => {
 
     expect(result).toEqual({ continue: true });
     expect(reviewEngine.reviewPhase1ShellCommand).not.toHaveBeenCalled();
+  });
+
+  it('allows run_in_terminal without review when hook review is disabled in settings', async () => {
+    const reviewEngine = {
+      reviewPhase1ShellCommand: vi.fn(),
+      reviewPhase2ResolvedAccesses: vi.fn(),
+      reviewShellCommand: vi.fn(),
+    };
+
+    const { bridge, token } = createExtensionHookBridge({
+      hookRuntimeRoot: '/tmp/auto-mode-hook-runtime',
+      workspaceRoot: '/workspace',
+      reviewEngine: reviewEngine as Parameters<typeof createExtensionHookBridge>[0]['reviewEngine'],
+      ui: fakeUi(),
+      token: 'test-token',
+      isHookReviewEnabled: () => false,
+    });
+
+    const result = (await bridge.handle('PreToolUse', {
+      token,
+      ...makePreToolUsePayload('echo hi'),
+    })) as {
+      continue?: boolean;
+      hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string };
+    };
+
+    expect(result.continue).toBe(true);
+    expect(result.hookSpecificOutput?.permissionDecision).toBe('allow');
+    expect(result.hookSpecificOutput?.permissionDecisionReason).toContain('disabled');
+    expect(reviewEngine.reviewPhase1ShellCommand).not.toHaveBeenCalled();
+    expect(reviewEngine.reviewPhase2ResolvedAccesses).not.toHaveBeenCalled();
   });
 
   it('denies immediately when quarantined without calling the review engine', async () => {

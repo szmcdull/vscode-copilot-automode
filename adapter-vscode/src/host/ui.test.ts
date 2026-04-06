@@ -2,6 +2,21 @@ import { describe, expect, it, vi } from 'vitest';
 import { createUiController } from './ui.js';
 
 describe('ui controller', () => {
+  it('shows Off on the status line when hook review is disabled in settings', async () => {
+    const setStatus = vi.fn();
+    const ui = createUiController({
+      showInformationMessage: vi.fn(),
+      showWarningMessage: vi.fn(),
+      showErrorMessage: vi.fn(),
+      appendLine: vi.fn(),
+      setStatus,
+      getHookReviewEnabled: () => false,
+    });
+
+    await ui.setReady(false);
+    expect(setStatus).toHaveBeenCalledWith('Auto Mode: Off');
+  });
+
   it('shows startup failure and marks status as errored', async () => {
     const showErrorMessage = vi.fn().mockResolvedValue(undefined);
     const appendLine = vi.fn();

@@ -13,18 +13,28 @@
   "main": "./dist/extension.js",
   "activationEvents": [
     "onStartupFinished",
-    "onCommand:autoMode.runReviewedShellCommand"
+    "onCommand:autoMode.runReviewedShellCommand",
+    "onCommand:autoMode.toggleHookReview"
   ],
   "contributes": {
     "commands": [
       {
         "command": "autoMode.runReviewedShellCommand",
         "title": "Auto Mode: Run Reviewed Shell Command"
+      },
+      {
+        "command": "autoMode.toggleHookReview",
+        "title": "Auto Mode: Toggle Hook Review"
       }
     ],
     "configuration": {
       "title": "Auto Mode",
       "properties": {
+        "autoMode.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "When enabled, PreToolUse hook requests for run_in_terminal are reviewed by the extension-host bridge. When disabled, shell tools are allowed without local model/path review (host still runs the command)."
+        },
         "autoMode.modelProvider": {
           "type": "string",
           "default": "anthropic",

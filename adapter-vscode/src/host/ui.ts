@@ -2,6 +2,8 @@ import type { UserAction } from '../protocol/types.js';
 
 export interface UiController {
   setReady(startedLocalProcess: boolean): Promise<void> | void;
+  /** When status is \"ready\" (not error/safe mode), refresh from `autoMode.enabled`. */
+  refreshReadyAppearance?(): Promise<void> | void;
   showServiceStartFailed(error: unknown): Promise<void> | void;
   showSafeModeState(active: boolean, reason: string): Promise<void> | void;
   showAskResolved(action: UserAction): Promise<void> | void;
@@ -17,16 +19,28 @@ export interface CreateUiControllerOptions {
   showErrorMessage: (message: string) => Promise<void> | void;
   appendLine: (message: string) => void;
   setStatus: (text: string) => void;
+  /** When set, `setReady` / safe-mode exit show Ready vs Off from settings. */
+  getHookReviewEnabled?: () => boolean;
   promptPreToolUseDecision?: (options: { title: string; prompt: string }) => Promise<'allow' | 'deny'>;
+}
+
+function readyStatusLine(enabled: boolean): string {
+  return enabled ? 'Auto Mode: Ready' : 'Auto Mode: Off';
 }
 
 export function createUiController(options: CreateUiControllerOptions): UiController {
   return {
     async setReady(startedLocalProcess) {
-      options.setStatus('Auto Mode: Ready');
+      const enabled = options.getHookReviewEnabled?.() ?? true;
+      options.setStatus(readyStatusLine(enabled));
       options.appendLine(
         startedLocalProcess ? '[runtime_ready] local runtime initialized' : '[runtime_ready] local model review ready',
       );
+    },
+
+    async refreshReadyAppearance() {
+      const enabled = options.getHookReviewEnabled?.() ?? true;
+      options.setStatus(readyStatusLine(enabled));
     },
 
     async showServiceStartFailed(error) {
@@ -44,7 +58,7 @@ export function createUiController(options: CreateUiControllerOptions): UiContro
         return;
       }
 
-      options.setStatus('Auto Mode: Ready');
+      options.setStatus(readyStatusLine(options.getHookReviewEnabled?.() ?? true));
       options.appendLine('[safe_mode] recovered');
       await options.showInformationMessage('Auto Mode exited safe mode');
     },

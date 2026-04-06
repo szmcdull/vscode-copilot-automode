@@ -88,6 +88,8 @@ export interface ActivateDependencies {
     command: string,
     handler: () => unknown | Promise<unknown>,
   ) => DisposableLike;
+  /** Default loads real `vscode`; tests inject a stub so `activate` does not import the runtime package. */
+  loadVscodeModule?: () => Promise<typeof import('vscode')>;
 }
 
 interface DisposableLike {
@@ -167,6 +169,8 @@ export interface CreateExtensionHookBridgeOptions {
   homeDir?: string;
   resolvePhase1Accesses?: ResolvePhase1AccessesFn;
   shellQuarantine?: ShellQuarantineStore;
+  /** When false, `run_in_terminal` PreToolUse is allowed without phase1/2 review (settings: `autoMode.enabled`). */
+  isHookReviewEnabled?: () => boolean;
 }
 
 let activeBridgeDispose: (() => Promise<void>) | undefined;
@@ -288,6 +292,27 @@ export function createExtensionHookBridge(options: CreateExtensionHookBridgeOpti
         },
       }).catch(() => undefined);
       return { continue: true };
+    }
+
+    const hookReviewEnabled = options.isHookReviewEnabled?.() ?? true;
+    if (!hookReviewEnabled) {
+      await appendDebugLog({
+        component: 'extension-bridge',
+        event: 'pre_tool_use_hook_review_disabled',
+        details: {
+          session_id: p.session_id,
+          tool_use_id: p.tool_use_id,
+        },
+      }).catch(() => undefined);
+      return {
+        continue: true,
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'allow',
+          permissionDecisionReason:
+            'Auto Mode hook review is disabled (autoMode.enabled=false); shell not reviewed by the extension.',
+        },
+      };
     }
 
     const quarantineKey = { sessionId: p.session_id, workspaceRoot: options.workspaceRoot };
@@ -454,6 +479,7 @@ export async function startHookBridgeHost(options: StartHookBridgeHostOptions): 
     workspaceRoot: workspaceFolder,
     reviewEngine: options.reviewEngine,
     ui: options.ui,
+    isHookReviewEnabled: () => options.getConfigValue('autoMode.enabled') !== false,
   });
 
   const { port, close } = await listenBridgeHttpServer(bridge);
@@ -544,6 +570,7 @@ export async function activate(
   context: Pick<ExtensionContext, 'subscriptions'> | { subscriptions: DisposableLike[] },
   deps: Partial<ActivateDependencies> = {},
 ): Promise<ExtensionRuntime> {
+  const resolvedDeps = await resolveActivateDependencies(deps);
   await appendDebugLog({
     component: 'extension',
     event: 'activate_start',
@@ -552,7 +579,6 @@ export async function activate(
       debugLogPath: debugLogPathFromEnv(),
     },
   }).catch(() => undefined);
-  const resolvedDeps = await resolveActivateDependencies(deps);
   const ui = resolvedDeps.createUi();
   let reviewEngine: ReturnType<typeof createReviewEngine>;
   let adapterBundle: ReturnType<typeof createAdapterBundle>;
@@ -620,6 +646,30 @@ export async function activate(
     async () => shellEntry.run(),
   );
   context.subscriptions.push(commandDisposable);
+
+  const vscodeForToggle = await (resolvedDeps.loadVscodeModule ?? (() => import('vscode')))();
+  const toggleDisposable = resolvedDeps.registerCommand('autoMode.toggleHookReview', async () => {
+    const config = vscodeForToggle.workspace.getConfiguration('autoMode');
+    const cur = config.get<boolean>('enabled', true);
+    await config.update('enabled', !cur, vscodeForToggle.ConfigurationTarget.Global);
+    await vscodeForToggle.window.showInformationMessage(
+      !cur
+        ? 'Auto Mode hook review is enabled (PreToolUse / run_in_terminal goes through this extension).'
+        : 'Auto Mode hook review is disabled (shell commands are not reviewed by this extension; the host may still enforce its own rules).',
+    );
+  });
+  context.subscriptions.push(toggleDisposable);
+
+  if (ui.refreshReadyAppearance) {
+    context.subscriptions.push(
+      vscodeForToggle.workspace.onDidChangeConfiguration((e) => {
+        if (e.affectsConfiguration('autoMode.enabled')) {
+          void ui.refreshReadyAppearance?.();
+        }
+      }),
+    );
+  }
+
   if (ui.dispose) {
     context.subscriptions.push({ dispose: () => ui.dispose?.() });
   }
@@ -723,7 +773,10 @@ async function resolveActivateDependencies(
   deps: Partial<ActivateDependencies>,
 ): Promise<ActivateDependencies> {
   if (deps.getConfigValue && deps.createUi && deps.startHookBridgeHost && deps.createShellEntry && deps.registerCommand) {
-    return deps as ActivateDependencies;
+    return {
+      ...deps,
+      loadVscodeModule: deps.loadVscodeModule ?? (() => import('vscode')),
+    } as ActivateDependencies;
   }
 
   const vscode = await import('vscode');
@@ -740,6 +793,8 @@ async function resolveActivateDependencies(
       (() => {
         const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);
         statusBar.text = 'Auto Mode: Starting';
+        statusBar.command = 'autoMode.toggleHookReview';
+        statusBar.tooltip = 'Auto Mode: click to toggle auto review (PreToolUse / run_in_terminal), or use settings autoMode.enabled';
         statusBar.show();
         const output = vscode.window.createOutputChannel('Auto Mode');
         return {
@@ -759,6 +814,8 @@ async function resolveActivateDependencies(
             setStatus: (text) => {
               statusBar.text = text;
             },
+            getHookReviewEnabled: () =>
+              vscode.workspace.getConfiguration('autoMode').get<boolean>('enabled', true),
             promptPreToolUseDecision: async ({ title, prompt }) => {
               const picked = await vscode.window.showInformationMessage(
                 `${title}\n\n${prompt}`,
@@ -822,6 +879,7 @@ async function resolveActivateDependencies(
     registerCommand:
       deps.registerCommand ??
       ((command, handler) => vscode.commands.registerCommand(command, handler) as Disposable),
+    loadVscodeModule: deps.loadVscodeModule ?? (() => import('vscode')),
   };
 }
 

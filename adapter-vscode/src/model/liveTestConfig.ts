@@ -26,12 +26,12 @@ import type { ModelConfig } from './types.js';
  * - For OpenAI-compatible providers, set provider=openai and point baseUrl to that service.
  * - Environment variables override file values.
  */
-export interface LiveTestModelConfig extends ModelConfig {
+export type LiveTestModelConfig = ModelConfig & {
   maxCases: number;
   debug: boolean;
   configPath: string;
   source: 'env' | 'file' | 'env+file';
-}
+};
 
 interface LiveTestFileConfig {
   enabled?: unknown;

@@ -32,7 +32,8 @@ describe('adapter extension manifest', () => {
     expect(scripts.prebuild).toBe('npm run clean');
     expect(scripts['prebuild:hooks']).toBe('npm run clean');
     expect(scripts.prepackage).toBe('npm run clean:package && npm run build');
-    expect(scripts.test).toBe('vitest run');
+    expect(scripts.test).toBe('vitest run --exclude src/**/*.live.test.ts');
+    expect(scripts['test:live-model']).toBe('vitest run src/review/reviewEngine.live.test.ts');
     expect(scripts.build).toBe('tsc -p .');
     expect(scripts['build:hooks']).toBe('tsc -p .');
     expect(scripts.watch).toBe('tsc -w -p .');

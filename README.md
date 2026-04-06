@@ -4,7 +4,9 @@
 
 auto-mode is an experimental AI auto-review layer for VSCode.
 
-It intercepts hook events before and after AI agent actions, reviews shell commands with a model before execution, and returns host decisions. For the hook `run_in_terminal` path, the extension uses a **two-phase** review (path extraction, local glob/realpath resolution, optional second model pass) plus a **repeated-deny quarantine** that after multiple denials, stops invoking the model for analysis and directly denies all subsequent external command tool requests while alerting the user, preventing deadlocks in looping workflows. 
+It intercepts hook events before and after AI agent actions, reviews shell commands with a model before execution, and returns host decisions. For the hook `run_in_terminal` path, the extension uses a **two-phase** review (path extraction, local glob/realpath resolution, optional second model pass) plus a **repeated-deny quarantine** that after multiple denials, stops invoking the model for analysis and directly denies all subsequent external command tool requests while alerting the user, preventing deadlocks in looping workflows.
+
+The current shell-review prompt also treats **remote download / fetch** as a hard deny condition, even when execution is split into a later command.
 
 At the moment, the mature product line is automatic review of the `run_in_terminal` tool in the hook flow.
 
@@ -30,7 +32,7 @@ The hook mainline for `run_in_terminal` is:
 3. The plugin executes `./scripts/*.sh`.
 4. The shell wrapper calls the hook CLI (`~/.auto-mode/hook-cli/dist/hooks/cli.js` after `npm run install:vscode`; when developing from the repository, `adapter-vscode/dist/hooks/cli.js`).
 5. The hook CLI forwards the request to the extension-host bridge.
-6. The bridge runs **phase 1** shell review (model proposes path reads/writes/deletes), then a **local resolver** (literal glob expansion, symlink / `realpath` facts). If symlink-resolved paths need extra scrutiny, **phase 2** review runs; otherwise phase 1 alone can suffice.
+6. The bridge runs **phase 1** shell review (model proposes path reads/writes/deletes/executes), then a **local resolver** (literal glob expansion, symlink / `realpath` facts). If symlink-resolved paths need extra scrutiny, **phase 2** review runs; otherwise phase 1 alone can suffice.
 7. The extension returns `allow` or `deny` to the host for this hook path (no `ask` in the hook flow). Repeated denials can trip **shell quarantine** and deny later terminal tool calls early.
 
 The **Auto Mode: Run Reviewed Shell Command** command palette path is separate: it still uses the legacy single-phase reviewer and may return `ask` with the extension UI.
@@ -135,6 +137,7 @@ After installation, check the following first:
 3. Whether safe commands are reviewed instead of unexpectedly falling back to host default approval
 4. For **hook** `run_in_terminal`: decisions are `allow` / `deny` (no extension `ask` dialog). For the **command palette** reviewed shell command, `ask` may still use the extension-owned confirmation UI
 5. If a command is denied and the agent retries with the **same command text**, a **new** `tool_use_id` means a **new** review round—not a duplicate of the same hook invocation
+6. Commands whose primary effect is downloading or fetching remote content should currently be denied by the review prompt, even when execution would happen in a later step
 
 For more detailed validation steps, see:
 
@@ -150,6 +153,15 @@ cd adapter-vscode
 npm test
 npm run build
 ```
+
+To validate prompt behavior against a real provider instead of mocks/stubs:
+
+```bash
+cd adapter-vscode
+npm run test:live-model
+```
+
+Live-model smoke tests are **not** part of the default `npm test` run. They read `~/.auto-mode/live-test.json`, require `"enabled": true`, and accept optional `baseUrl`, `maxCases`, and `debug` fields. Environment variables still override file values; `AUTO_MODE_LIVE_DEBUG=1` prints the request and raw response with auth headers redacted.
 
 ## Repository Structure
 

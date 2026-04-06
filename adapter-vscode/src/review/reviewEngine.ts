@@ -144,7 +144,7 @@ function parsePhase1ReviewModelJson(text: string): Phase1ReviewResult {
     const path = item.path;
     const glob = item.glob;
 
-    if (kind !== 'r' && kind !== 'w' && kind !== 'del') {
+    if (kind !== 'r' && kind !== 'w' && kind !== 'del' && kind !== 'x') {
       throw new Error(`Invalid phase 1 access kind: ${String(kind)}`);
     }
 
@@ -232,8 +232,8 @@ function validatePhase2ResolvedAccessInput(access: unknown): asserts access is P
     throw new Error('Phase 2 review input accesses must be objects');
   }
 
-  if (access.kind !== 'r' && access.kind !== 'w' && access.kind !== 'del') {
-    throw new Error('Phase 2 review input access must include "kind" as "r", "w", or "del"');
+  if (access.kind !== 'r' && access.kind !== 'w' && access.kind !== 'del' && access.kind !== 'x') {
+    throw new Error('Phase 2 review input access must include "kind" as "r", "w", "del", or "x"');
   }
 
   assertNonEmptyString(

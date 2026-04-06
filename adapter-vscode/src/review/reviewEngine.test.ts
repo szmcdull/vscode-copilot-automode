@@ -206,6 +206,30 @@ describe('review engine', () => {
     expect(model.complete).toHaveBeenCalledWith(expect.stringContaining('"allow":"y|n"'));
   });
 
+  it('parses phase-1 x access kind', async () => {
+    const model = {
+      complete: vi.fn().mockResolvedValue(
+        JSON.stringify({
+          allow: 'y',
+          reason: 'script in workspace',
+          complete: 'y',
+          accesses: [{ kind: 'x', path: 'scripts/ci.sh', glob: 'n' }],
+        }),
+      ),
+    };
+
+    const engine = createReviewEngine({ modelClient: model as any });
+    const result = await engine.reviewPhase1ShellCommand({
+      userPrompt: 'run ci',
+      command: 'bash scripts/ci.sh',
+      workspaceRoot: '/workspace',
+      homeDir: '/home/test',
+      cwd: '/workspace',
+    });
+
+    expect(result.accesses).toEqual([{ kind: 'x', path: 'scripts/ci.sh', glob: false }]);
+  });
+
   it('parses a phase-2 allow or deny result', async () => {
     const model = {
       complete: vi
@@ -389,7 +413,7 @@ describe('review engine', () => {
           },
         ],
       }),
-    ).rejects.toThrow('Phase 2 review input access must include "kind" as "r", "w", or "del"');
+    ).rejects.toThrow('Phase 2 review input access must include "kind" as "r", "w", "del", or "x"');
 
     await expect(
       engine.reviewPhase2ResolvedAccesses({

@@ -1,0 +1,17 @@
+{
+  "name": "auto-mode-cursor-cli-adapter",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "clean": "node ./scripts/clean.js dist",
+    "prebuild": "npm run clean",
+    "build": "tsc -p .",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

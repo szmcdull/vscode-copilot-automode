@@ -3,6 +3,11 @@
  * Field names stay in snake_case for hook/runtime interchange.
  */
 
+export type {
+  PreToolUseHookResult,
+  PreToolUseHookSpecificOutput,
+} from '../shared/preToolUseHookResult.js';
+
 // ---- Enums (frozen string tokens for local protocol interchange) ----
 
 export type ReviewDecisionKind =
@@ -56,18 +61,6 @@ export type UserAction =
   | 'provide_context';
 
 export type AskTimeoutBehavior = 'deny' | 'cancel';
-
-/** VSCode Claude-format PreToolUse hook JSON (stdout), not the internal bridge payload. */
-export interface PreToolUseHookSpecificOutput {
-  hookEventName: 'PreToolUse';
-  permissionDecision: 'allow' | 'deny' | 'ask';
-  permissionDecisionReason?: string;
-}
-
-export interface PreToolUseHookResult {
-  continue: boolean;
-  hookSpecificOutput?: PreToolUseHookSpecificOutput;
-}
 
 /** Local review session status used by the adapter test/runtime mirrors. */
 export type ReviewSessionStatus = 'final' | 'ask_pending';

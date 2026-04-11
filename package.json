@@ -2,6 +2,10 @@
   "name": "vscode-copilot-automode",
   "private": true,
   "scripts": {
-    "install:vscode": "bash ./scripts/install-vscode.sh"
+    "install:vscode": "bash ./scripts/install-vscode.sh",
+    "build:adapter": "npm run build --prefix adapter-vscode",
+    "test:adapter": "npm test --prefix adapter-vscode",
+    "build:cursor-cli-adapter": "npm run build --prefix adapter-cursor-cli",
+    "test:cursor-cli-adapter": "npm test --prefix adapter-cursor-cli"
   }
 }

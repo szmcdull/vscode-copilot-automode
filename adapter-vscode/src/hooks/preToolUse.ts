@@ -4,9 +4,8 @@ import { normalizeOperationRequest } from '../normalizers/operationRequest.js';
 import type { SessionStore } from './sessionStore.js';
 import type { PreToolUsePayload } from './types.js';
 import { mapReviewHttpResponseToPreToolUseHook } from './reviewMapping.js';
-
-export const RUN_IN_TERMINAL_TOOL_NAME = 'run_in_terminal';
-export const CANONICAL_SHELL_TOOL_NAME = 'run_terminal_cmd';
+export { CANONICAL_SHELL_TOOL_NAME, RUN_IN_TERMINAL_TOOL_NAME } from '../shared/toolNames.js';
+import { CANONICAL_SHELL_TOOL_NAME, RUN_IN_TERMINAL_TOOL_NAME } from '../shared/toolNames.js';
 
 /** Distinguishes a persisted local review session from older remote-service shapes. */
 export type ReviewResultKind = 'local_review';

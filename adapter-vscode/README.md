@@ -1,60 +1,127 @@
 # adapter-vscode
 
-VSCode/Cursor extension for **Auto Mode**. The current product mainline is **pure TypeScript inside this adapter**: extension-host bridge, review engine, extension-owned `ask` UI, and **direct HTTP calls to the configured model provider**.
+VSCode-compatible extension-host adapter for Auto Mode.
 
-## Architecture
+## Install and Use
 
-- **`plugin-vscode-hooks/`** is the real host interception path for `run_in_terminal`: VSCode runs the hook CLI (`dist/hooks/cli.js`) for `UserPromptSubmit`, `PreToolUse`, and `PostToolUse`.
-- With the extension activated, the hook CLI discovers a **workspace-scoped bridge manifest** and forwards events to an **extension-host HTTP server on localhost**.
-- **Review model:** configured via extension settings (`autoMode.modelProvider`, `autoMode.modelName`, `autoMode.apiKey`, ...). The extension calls the provider **directly** (for example Anthropic Messages API or OpenAI Chat Completions).
-- **Host-facing decisions** for hooks are only **`allow` / `deny` / `ask`**. Internal review may use **`allow_with_constraints`**; the engine contracts that to **`allow`**, **`deny`**, or **`ask`** before returning toward the host.
-- **No review-service fallback:** if the bridge manifest is missing or the bridge is unavailable, the hook CLI now fails explicitly instead of falling back to env-based HTTP review.
+### What it installs
 
-## What works now
+- An extension running in a VSCode-compatible extension host
+- The hook plugin runtime under `~/.auto-mode/vscode-plugin`
+- The hook CLI runtime under `~/.auto-mode/hook-cli`
 
-- Extension activation and **hook bridge** startup (requires model settings).
-- Workspace-scoped **bridge manifest** for hook CLI discovery.
-- **PreToolUse** for `run_in_terminal`: review engine + extension UI for `ask`.
-- Palette command **`Auto Mode: Run Reviewed Shell Command`** using the same local TypeScript review path.
+This adapter documents the extension-host path only. Even if Cursor can load much of the same extension surface, that should not be read as full support for Cursor IDE's own agent/tool path.
 
-## Extension settings
+### Prerequisites
 
-| Setting | Purpose |
-|--------|---------|
-| `autoMode.modelProvider` | `anthropic` or `openai`. |
-| `autoMode.modelName` | Provider-specific model id (default `claude-3-7-sonnet-latest`; for OpenAI you might use `gpt-4.1`). |
-| `autoMode.apiKey` | Provider API key (required; empty default in package metadata). |
-| `autoMode.anthropicBaseUrl` | Optional override for the Anthropic Messages API base URL. |
-| `autoMode.openaiBaseUrl` | Optional override for the OpenAI Chat Completions API base URL. |
-| `autoMode.modelTimeoutMs` | Request timeout (default `120000` ms). |
+- A VSCode-compatible editor with host plugin support
+- Node.js
+- `bash`
+- npm
+- A model API key for either Anthropic-compatible or OpenAI-compatible access
 
-## Local development
+### Install
+
+1. Install dependencies for this adapter:
+
+```bash
+cd adapter-vscode
+npm install
+cd ..
+```
+
+2. Run the installer from the repository root:
+
+```bash
+npm run install:vscode
+```
+
+That installer builds `adapter-vscode`, packages and installs the VSIX, deploys the hook runtime into `~/.auto-mode/`, and safely updates VSCode user settings so the plugin runtime can be discovered.
+
+### Configure model settings
+
+Minimum `settings.json`:
+
+```json
+{
+  "autoMode.modelProvider": "anthropic",
+  "autoMode.modelName": "claude-3-7-sonnet-latest",
+  "autoMode.apiKey": "your-api-key"
+}
+```
+
+OpenAI-compatible example:
+
+```json
+{
+  "autoMode.modelProvider": "openai",
+  "autoMode.modelName": "gpt-4.1",
+  "autoMode.apiKey": "your-api-key"
+}
+```
+
+Optional settings:
+
+- `autoMode.anthropicBaseUrl`
+- `autoMode.openaiBaseUrl`
+- `autoMode.modelTimeoutMs`
+
+### Start using it
+
+1. Reload the editor window after installation and configuration.
+2. Trigger a real AI shell action that uses `run_in_terminal`.
+3. Confirm that the hook path returns `allow` / `deny`.
+
+### Quick validation
+
+- Verify the extension activates on startup
+- Verify AI terminal actions trigger `PreToolUse`
+- Verify safe commands are reviewed instead of silently falling back
+- Verify the hook path uses `allow` / `deny`, while the command palette path may still use extension-owned `ask`
+
+### Review behavior
+
+- The mature review target is `run_in_terminal`
+- The hook path uses two-phase review: phase 1 extracts likely accesses, then local glob / realpath resolution verifies the actual paths, and phase 2 runs only when resolved paths need extra scrutiny
+- On the hook path, the practical result is mainly `allow` / `deny`
+- The command palette path is separate and may still use extension-owned `ask`
+- Repeated denials can trigger quarantine and block later risky shell attempts earlier
+
+## Development and Debugging
+
+### Local development
 
 From this directory:
 
 ```bash
-npm install
 npm run build
 npm test
 npm run package
 ```
 
-Useful scripts: `npm run watch`, `npm run devhost:vscode`, `npm run devhost:cursor`. See `.vscode/launch.json` for debugging.
+Useful scripts:
 
-## Minimal usage path
+- `npm run watch`
+- `npm run devhost:vscode`
+- `npm run devhost:cursor`
 
-1. Set **model** settings (`autoMode.apiKey` at minimum; adjust `autoMode.modelName` if needed).
-2. For **hooks**, configure the hook plugin (`plugin-vscode-hooks/`) per its README, build this package so `dist/hooks/cli.js` exists, and run the editor with the extension so the bridge manifest is written.
+`npm run devhost:cursor` is for validating the extension-host-compatible surface inside Cursor. It does not imply that Cursor IDE's native agent flow is already modeled as a first-class host path in this repository.
 
-## Packaging and install
+### Live-model verification
 
 ```bash
-npm run package
+npm run test:live-model
 ```
 
-Install the generated `.vsix` with `code --install-extension …` or `cursor --install-extension …`.
+This is not part of the default `npm test`. It reads `~/.auto-mode/live-test.json`, requires `"enabled": true`, and supports optional `baseUrl`, `maxCases`, and `debug`.
 
-## Current limitations
+### Debugging notes
 
-- Only the hook and palette shell paths are fully wired for end-to-end experimentation; other categories remain incremental.
-- **Automated tests** cover TypeScript units and builds; **full VSCode UI and live hook behavior** still require the manual smoke checklist in `plugin-vscode-hooks/README.md`.
+- Full hook behavior still needs live validation in a real editor
+- `plugin-vscode-hooks/README.md` is the best starting point for hook-runtime smoke checks
+- `AGENTS_DOCS/` contains internal architecture notes and troubleshooting details
+
+## Current Limitations
+
+- The `run_in_terminal` hook path is the most mature line today
+- Non-shell categories are still incremental or experimental

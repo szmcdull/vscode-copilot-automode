@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeShellExecution": [
+      {
+        "command": "bash ./adapter-cursor-cli/scripts/run-cursor-cli-hook.sh beforeShellExecution",
+        "failClosed": true
+      }
+    ],
+    "preToolUse": [
+      {
+        "matcher": "Shell",
+        "command": "bash ./adapter-cursor-cli/scripts/run-cursor-cli-hook.sh preToolUse",
+        "failClosed": true
+      }
+    ]
+  }
+}

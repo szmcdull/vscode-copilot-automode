@@ -1,12 +1,14 @@
 # plugin-vscode-hooks
 
-Hook plugin for VSCode/Cursor that wires host hook events (`UserPromptSubmit`, `PreToolUse`, `PostToolUse`) to the Node hook runner in `adapter-vscode`.
+Hook plugin for the VSCode-compatible extension-host path. It wires host hook events (`UserPromptSubmit`, `PreToolUse`, `PostToolUse`) to the Node hook runner in `adapter-vscode`.
 
 ## Repository copy vs installed runtime
 
 The `plugin-vscode-hooks/` directory in this repository is the **source / development** tree. After you install dependencies in **`adapter-vscode/`** and then run **`npm run install:vscode`** from the **repository root**, the installer copies the plugin material that VS Code actually loads into **`~/.auto-mode/vscode-plugin`**. Day-to-day, assume the host is using that path unless you are explicitly developing against the in-repo copy.
 
-This package is the **real host path** for intercepting **`run_in_terminal`** in VSCode. Installing only the extension and using the palette command **`Auto Mode: Run Reviewed Shell Command`** exercises a **different** entry (adapter-centric); the **hook-driven flow** is what ties prompt storage, terminal tool use, and post-execution hooks together.
+This package is the **real host path** for intercepting **`run_in_terminal`** in the VSCode-compatible extension-host flow. Installing only the extension and using the palette command **`Auto Mode: Run Reviewed Shell Command`** exercises a **different** entry (adapter-centric); the **hook-driven flow** is what ties prompt storage, terminal tool use, and post-execution hooks together.
+
+This should not be read as "Cursor IDE agent support". Cursor may load much of the same extension/plugin surface, but its own agent/tool semantics are a separate product path.
 
 ## Contract (hooks vs extension)
 
@@ -90,7 +92,7 @@ npm run build
 
 These commands are **automated** and run in development/CI-style workflows. They **do not** launch VSCode, exercise real hooks against a live agent session, or validate extension UI.
 
-## Manual smoke checklist (live VSCode / Cursor)
+## Manual smoke checklist (live extension-host validation)
 
 Use this list when validating **end-to-end in a real editor**. **It is not covered by the commands above**—do not treat it as CI-equivalent.
 

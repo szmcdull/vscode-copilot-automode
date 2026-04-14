@@ -1,6 +1,6 @@
 {
   "name": "auto-mode-plugin",
   "version": "0.0.1",
-  "description": "VSCode/Cursor hook plugin: host hook commands delegate to the adapter-vscode hook CLI.",
+  "description": "VSCode-compatible hook plugin: host hook commands delegate to the adapter-vscode hook CLI.",
   "hooks": "./hooks/hooks.json"
 }
